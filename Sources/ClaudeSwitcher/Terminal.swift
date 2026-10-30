@@ -177,7 +177,10 @@ enum Updater {
     }
 
     static var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        // Resolve the ~/.local/bin symlink so the CLI finds the app bundle too.
+        let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let bundle = Bundle(url: exe.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+        return (bundle?.infoDictionary ?? Bundle.main.infoDictionary)?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
     static func latestTag() async throws -> String {
