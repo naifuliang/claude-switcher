@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" alt=""></p>
+
 # Claude Switcher
 
 一个 macOS 菜单栏小工具：一键切换 **Claude Desktop** 是用你登录的 claude.ai 账号额度，还是走 API。

@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" width="128" alt=""></p>
+
 # Claude Switcher
 
 A macOS menu bar app that switches **Claude Desktop** between your signed-in claude.ai account and API-based inference — in one click.
