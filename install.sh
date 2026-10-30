@@ -54,7 +54,7 @@ API="https://api.github.com/repos/$REPO/releases"
 if [ -n "$TAG" ]; then
     RELEASE_JSON="$(/usr/bin/curl -fsSL "$API/tags/$TAG")"
 else
-    echo "Resolving the newest release…"
+    echo "Resolving the newest release..."
     RELEASE_JSON="$(/usr/bin/curl -fsSL "$API?per_page=1")"
     TAG="$(printf '%s\n' "$RELEASE_JSON" | /usr/bin/grep -m1 '"tag_name"' | /usr/bin/cut -d'"' -f4)"
 fi
@@ -76,7 +76,7 @@ echo "Installing $APP_NAME $TAG"
 
 ASSET="$(/usr/bin/basename "$URL")"
 ARCHIVE_PATH="$WORK_DIR/$ASSET"
-echo "Downloading…"
+echo "Downloading..."
 /usr/bin/curl -fsSL "$URL" --output "$ARCHIVE_PATH"
 /usr/bin/curl -fsSL "$URL.sha256" --output "$ARCHIVE_PATH.sha256"
 
@@ -107,14 +107,14 @@ fi
 
 # Quit a running copy so the new one can start (profiles are kept).
 if /usr/bin/pgrep -x "$EXE" >/dev/null 2>&1; then
-    echo "Quitting the running $APP_NAME…"
+    echo "Quitting the running ${APP_NAME}..."
     /usr/bin/pkill -x "$EXE" 2>/dev/null || true
     i=0
     while /usr/bin/pgrep -x "$EXE" >/dev/null 2>&1 && [ $i -lt 20 ]; do /bin/sleep 0.25; i=$((i + 1)); done
 fi
 
 TARGET="$INSTALL_DIR/$APP_NAME.app"
-echo "Installing to $TARGET…"
+echo "Installing to ${TARGET}..."
 /bin/rm -rf "$TARGET"
 /usr/bin/ditto "$WORK_DIR/unpacked/$APP_NAME.app" "$TARGET"
 /usr/bin/xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null || true
