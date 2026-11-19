@@ -1,117 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct ManagerView: View {
-    @EnvironmentObject var model: AppModel
-    @State private var selection: UUID?
-
-    var body: some View {
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section(L("Profiles", "配置")) {
-                    ForEach(model.profiles) { p in
-                        ProfileRow(profile: p, active: model.isActive(p)).tag(p.id)
-                    }
-                    .onMove { model.move(from: $0, to: $1) }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    Menu {
-                        ForEach(ProfileKind.allCases) { k in
-                            Button { selection = model.addProfile(kind: k).id } label: {
-                                Label(k.title, systemImage: k.symbol)
-                            }
-                        }
-                    } label: {
-                        Label(L("Add Profile", "添加配置"), systemImage: "plus")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    Spacer()
-                }
-                .padding(10)
-            }
-            .navigationSplitViewColumnWidth(min: 230, ideal: 250)
-        } detail: {
-            if let id = selection, let p = model.profiles.first(where: { $0.id == id }) {
-                ProfileEditor(original: p, onDelete: { selection = nil }).id(p.id)
-            } else {
-                OverviewView()
-            }
-        }
-        .onAppear { model.refresh() }
-    }
-}
-
-struct ProfileRow: View {
-    let profile: Profile
-    let active: Bool
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: profile.kind.symbol).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(profile.name).lineLimit(1)
-                Text(profile.kind.title).font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if active {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            } else if profile.validationError != nil {
-                Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-struct OverviewView: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        Form {
-            Section(L("Claude Desktop is using", "Claude Desktop 当前使用")) {
-                HStack {
-                    Image(systemName: model.menuIcon).font(.title2)
-                    Text(model.activeTitle).font(.title3.weight(.semibold))
-                    Spacer()
-                    if model.busy { ProgressView().controlSize(.small) }
-                }
-                Button(L("Use official account (subscription quota)", "使用官方账号（订阅额度）")) {
-                    model.activate(.official)
-                }
-                .disabled(model.mode == .official || model.busy)
-            }
-            Section(L("How it works", "说明")) {
-                Text(L("""
-                • Official account: Claude uses the claude.ai account you signed in with.
-                • Profiles: Claude uses an API key, a third-party Anthropic-compatible endpoint, or another account's long-lived token instead.
-                • Switching writes Claude Desktop's own settings and restarts Claude.
-                """, """
-                • 官方账号：Claude 使用你在 App 里登录的 claude.ai 账号和它的订阅额度。
-                • 配置：Claude 改用 API Key、第三方兼容 Endpoint，或另一个账号的长期 Token。
-                • 切换时会写入 Claude Desktop 自带的设置，并自动重启 Claude。
-                """))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                Text(L("Add a profile with the + button at the bottom left.", "点左下角的「添加配置」开始。"))
-                    .foregroundStyle(.secondary)
-            }
-            Section(L("Options", "选项")) {
-                Toggle(L("Restart Claude after switching", "切换后自动重启 Claude"), isOn: $model.restartAfterSwitch)
-                Toggle(L("Launch at login", "开机自动启动"), isOn: $model.launchAtLogin)
-                HStack {
-                    Text("Claude Switcher \(Updater.currentVersion)").foregroundStyle(.secondary)
-                    Spacer()
-                    Button(L("Check for Updates…", "检查更新…")) { model.checkForUpdates() }
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-}
-
 struct ProfileEditor: View {
     @EnvironmentObject var model: AppModel
     let onDelete: () -> Void
@@ -121,6 +10,7 @@ struct ProfileEditor: View {
     @State private var fetching = false
     @State private var fetchNote: String?
     @State private var showKey = false
+    @State private var authorizationCode = ""
     @StateObject private var login = TokenLogin()
 
     init(original: Profile, onDelete: @escaping () -> Void) {
@@ -155,30 +45,51 @@ struct ProfileEditor: View {
 
             modelsSection
 
-            Section {
-                HStack {
-                    Button(L("Delete", "删除"), role: .destructive) {
-                        if model.confirm(L("Delete \(draft.name)?", "删除「\(draft.name)」？"),
-                                         detail: L("This removes it from Claude Desktop too.", "也会从 Claude Desktop 里移除。"),
-                                         ok: L("Delete", "删除")) {
-                            model.delete(draft)
-                            onDelete()
-                        }
-                    }
-                    Spacer()
-                    if let err = edited.validationError {
-                        Text(err).font(.caption).foregroundStyle(.orange).lineLimit(2)
-                    }
-                    Button(L("Save", "保存")) { model.save(edited) }
-                    Button(model.isActive(draft) ? L("Save", "保存") + " ✓" : L("Save & Use", "保存并使用")) {
-                        model.save(edited, use: !model.isActive(draft))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(edited.validationError != nil || model.busy)
-                }
-            }
+
         }
         .formStyle(.grouped)
+        .safeAreaInset(edge: .top) {
+            HStack(spacing: 12) {
+                ProfileGlyph(kind: draft.kind)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(draft.name).font(.title2.weight(.semibold))
+                    Text(draft.kind.title).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if model.isActive(draft) { StatusPill(text: L("Selected", "已选中"), color: .accentColor) }
+            }
+            .padding(24)
+            .background(.bar)
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let err = edited.validationError {
+                    Text(err).font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack {
+                    Button(L("Save", "保存")) { model.save(edited) }
+                    Button(L("Save & Switch", "保存并切换")) { model.save(edited, use: true) }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(edited.validationError != nil || model.busy)
+                    Button(L("Use & Open Claude", "使用并打开 Claude")) {
+                        model.save(edited, use: true, openAfterSwitch: true)
+                    }
+                    .disabled(edited.validationError != nil || model.busy)
+                }
+                Button(L("Delete Profile", "删除配置"), role: .destructive) {
+                    if model.confirm(L("Delete \(draft.name)?", "删除「\(draft.name)」？"),
+                                     detail: L("This removes it from Claude Desktop too.", "也会从 Claude Desktop 里移除。"),
+                                     ok: L("Delete", "删除")) {
+                        model.delete(draft)
+                        onDelete()
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial)
+        }
         .onChange(of: login.state) { _, state in
             if case .found(let token) = state {
                 draft.apiKey = token
@@ -244,7 +155,7 @@ struct ProfileEditor: View {
                 case .idle: EmptyView()
                 case .waiting:
                     ProgressView().controlSize(.small)
-                    Text(L("Waiting for Terminal…", "等待终端完成授权…")).foregroundStyle(.secondary)
+                    Text(L("Waiting for browser authorization…", "等待浏览器授权…")).foregroundStyle(.secondary)
                     Button(L("Cancel", "取消")) { login.stop(); login.state = .idle }.buttonStyle(.borderless)
                 case .found:
                     Label(L("Token received", "已获取 Token"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -252,17 +163,28 @@ struct ProfileEditor: View {
                     Text(msg).foregroundStyle(.red).lineLimit(2)
                 }
             }
+            if login.state == .waiting {
+                HStack {
+                    SecureField(L("Authorization code, if the browser asks you to paste one", "如果浏览器提供授权码，请粘贴到这里"), text: $authorizationCode)
+                    Button(L("Continue", "继续")) {
+                        login.submitAuthorizationCode(authorizationCode)
+                        authorizationCode = ""
+                    }.disabled(authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            Button(L("Use terminal login instead…", "改用终端登录…")) { login.start(inTerminal: true) }
+                .font(.caption)
             keyField
             if let d = draft.tokenCreatedAt {
-                LabeledContent(L("Expires around", "大约到期")) {
+                LabeledContent(L("Estimated expiry · not verified", "预计到期 · 未验证")) {
                     Text(Calendar.current.date(byAdding: .year, value: 1, to: d) ?? d, style: .date)
                 }
             }
         } header: {
             Text(L("Long-lived token", "长期 Token"))
         } footer: {
-            Text(L("Runs `claude setup-token` in Terminal. Sign in with the other Claude account in the browser; its subscription quota is then used. You can also paste a token here.",
-                   "会在终端里运行 `claude setup-token`。在浏览器中用另一个 Claude 账号登录授权，之后就用那个账号的订阅额度。也可以直接粘贴已有 Token。"))
+            Text(L("Runs Claude Code login in the background. Authorize the intended account in your browser; the token is filled here automatically. Terminal login is available as a fallback. You can also paste an existing token.",
+                   "在后台运行 Claude Code 登录，在浏览器中授权目标账号后，Token 会自动填回。终端登录作为备用方式，也可以手动粘贴已有 Token。"))
                 .foregroundStyle(.secondary)
         }
     }
@@ -280,7 +202,14 @@ struct ProfileEditor: View {
                 }
                 .disabled(fetching || draft.trimmedKey.isEmpty)
                 if fetching { ProgressView().controlSize(.small) }
-                if let fetchNote { Text(fetchNote).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+            }
+            if let fetchNote {
+                Text(fetchNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         } header: {
             Text(L("Models", "模型"))

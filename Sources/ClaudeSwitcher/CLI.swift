@@ -35,7 +35,16 @@ enum CLI {
                 return 1
             }
             do {
-                let note = try ClaudeDesktop.switchTo(target, profiles: profiles, restart: !noRestart)
+                let note: String?
+                if ClaudeDesktop.usesLocalGateway, case .profile(let profile) = target {
+                    if let error = profile.validationError { throw SwitchError(message: error) }
+                    var settings = GatewaySettings.load()
+                    settings.selectedProfileID = profile.id
+                    try settings.save()
+                    note = L("Local gateway route updated for new requests. Claude Switcher must remain running.", "已切换本地网关的新请求路由，请保持 Claude Switcher 运行。")
+                } else {
+                    note = try ClaudeDesktop.switchTo(target, profiles: profiles, restart: !noRestart)
+                }
                 print("✓ " + describe(ClaudeDesktop.currentMode(profiles: profiles), profiles: profiles))
                 if let note { print(note) }
                 return 0
@@ -43,6 +52,10 @@ enum CLI {
                 fputs("error: \(error.localizedDescription)\n", stderr)
                 return 1
             }
+
+        case "repair-tokens":
+            do { print("Repaired profiles: \(try TokenRepair.repair()). Originals backed up privately."); return 0 }
+            catch { fputs("Token repair failed; private backups are retained.\n", stderr); return 1 }
 
         case "version", "-v":
             print(Updater.currentVersion)

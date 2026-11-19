@@ -51,6 +51,11 @@ enum ClaudeDesktop {
             .contains { FileManager.default.fileExists(atPath: $0) }
     }
 
+    static var usesLocalGateway: Bool {
+        FileIO.readJSON(configURL)["deploymentMode"] as? String != "1p"
+            && FileIO.readJSON(metaURL)["appliedId"] as? String == GatewaySettings.profileID.uuidString.lowercased()
+    }
+
     // MARK: - State
 
     static func currentMode(profiles: [Profile]) -> ActiveMode {
@@ -59,6 +64,9 @@ enum ClaudeDesktop {
         let meta = FileIO.readJSON(metaURL)
         guard let applied = meta["appliedId"] as? String, !applied.isEmpty,
               FileIO.readJSON(entryURL(applied))["inferenceProvider"] != nil else { return .official }
+        if applied == GatewaySettings.profileID.uuidString.lowercased(), let selected = GatewaySettings.load().selectedProfileID {
+            return .profile(selected)
+        }
         if let p = profiles.first(where: { $0.claudeID == applied }) { return .profile(p.id) }
         let entries = meta["entries"] as? [[String: Any]] ?? []
         let name = entries.first { ($0["id"] as? String) == applied }?["name"] as? String
@@ -147,13 +155,22 @@ enum ClaudeDesktop {
         return true
     }
 
-    static func launch() {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return }
+    static func launchChecked() throws {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            throw SwitchError(message: L("Claude Desktop is not installed.", "没有找到 Claude Desktop，请先安装。"))
+        }
         let cfg = NSWorkspace.OpenConfiguration()
         cfg.activates = true
         let done = DispatchSemaphore(value: 0)
-        NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, _ in done.signal() }
-        _ = done.wait(timeout: .now() + 15)
+        var launchError: Error?
+        NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, error in
+            launchError = error
+            done.signal()
+        }
+        guard done.wait(timeout: .now() + 15) == .success else {
+            throw SwitchError(message: L("Timed out opening Claude.", "打开 Claude 超时。"))
+        }
+        if let launchError { throw launchError }
     }
 
     /// Applies a target, restarting Claude around the write when it is running.
@@ -169,7 +186,7 @@ enum ClaudeDesktop {
                      "Claude 没有退出，设置会在你下次重启 Claude 后生效。")
         }
         try apply(target, profiles: profiles)
-        if restart && wasRunning && note == nil { launch() }
+        if restart && wasRunning && note == nil { try launchChecked() }
         if !restart && wasRunning {
             note = L("Restart Claude to apply.", "重启 Claude 后生效。")
         }

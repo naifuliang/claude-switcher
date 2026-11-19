@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "ClaudeSwitcher",
             path: "Sources/ClaudeSwitcher"
-        )
+        ),
+        .testTarget(name: "ClaudeSwitcherTests", dependencies: ["ClaudeSwitcher"])
     ]
 )

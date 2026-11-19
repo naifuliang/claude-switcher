@@ -22,6 +22,8 @@ INSTALL_DIR="${CLAUDE_SWITCHER_INSTALL_DIR:-/Applications}"
 OPEN_APP="${CLAUDE_SWITCHER_OPEN_APP:-1}"
 CONFIRM="${CLAUDE_SWITCHER_INSTALL_CONFIRM:-0}"
 TAG="${CLAUDE_SWITCHER_RELEASE_TAG:-}"
+STOP_APP="${CLAUDE_SWITCHER_STOP_APP:-1}"
+BIN_DIR="${CLAUDE_SWITCHER_BIN_DIR:-$HOME/.local/bin}"
 
 WORK_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/claude-switcher-install.XXXXXX")"
 cleanup() { /bin/rm -rf "$WORK_DIR"; }
@@ -55,7 +57,7 @@ if [ -n "$TAG" ]; then
     RELEASE_JSON="$(/usr/bin/curl -fsSL "$API/tags/$TAG")"
 else
     echo "Resolving the newest release..."
-    RELEASE_JSON="$(/usr/bin/curl -fsSL "$API?per_page=1")"
+    RELEASE_JSON="$(/usr/bin/curl -fsSL "$API/latest")"
     TAG="$(printf '%s\n' "$RELEASE_JSON" | /usr/bin/grep -m1 '"tag_name"' | /usr/bin/cut -d'"' -f4)"
 fi
 if [ -z "$TAG" ]; then
@@ -105,8 +107,23 @@ if [ ! -d "$INSTALL_DIR" ] || [ ! -w "$INSTALL_DIR" ]; then
     echo "note: falling back to $INSTALL_DIR"
 fi
 
+/usr/bin/codesign --verify --deep --strict "$WORK_DIR/unpacked/$APP_NAME.app"
+PACKAGE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$WORK_DIR/unpacked/$APP_NAME.app/Contents/Info.plist")"
+if [ "$PACKAGE_VERSION" != "${TAG#v}" ]; then
+    echo "error: package version does not match the selected release" >&2
+    exit 1
+fi
+
+# Stage on the destination volume before touching the installed application.
+STAGE_DIR="$(/usr/bin/mktemp -d "$INSTALL_DIR/.claude-switcher-stage.XXXXXX")"
+if ! /usr/bin/ditto "$WORK_DIR/unpacked/$APP_NAME.app" "$STAGE_DIR/$APP_NAME.app"; then
+    /bin/rm -rf "$STAGE_DIR"
+    echo "error: could not stage the update; existing app was kept" >&2
+    exit 1
+fi
+
 # Quit a running copy so the new one can start (profiles are kept).
-if /usr/bin/pgrep -x "$EXE" >/dev/null 2>&1; then
+if [ "$STOP_APP" = "1" ] && /usr/bin/pgrep -x "$EXE" >/dev/null 2>&1; then
     echo "Quitting the running ${APP_NAME}..."
     /usr/bin/pkill -x "$EXE" 2>/dev/null || true
     i=0
@@ -115,12 +132,24 @@ fi
 
 TARGET="$INSTALL_DIR/$APP_NAME.app"
 echo "Installing to ${TARGET}..."
-/bin/rm -rf "$TARGET"
-/usr/bin/ditto "$WORK_DIR/unpacked/$APP_NAME.app" "$TARGET"
+PREVIOUS="$STAGE_DIR/previous.app"
+if [ -e "$TARGET" ]; then
+    if ! /bin/mv "$TARGET" "$PREVIOUS"; then
+        /bin/rm -rf "$STAGE_DIR"
+        echo "error: could not move the existing app; it was kept" >&2
+        exit 1
+    fi
+fi
+if ! /bin/mv "$STAGE_DIR/$APP_NAME.app" "$TARGET"; then
+    if [ -e "$PREVIOUS" ]; then /bin/mv "$PREVIOUS" "$TARGET"; fi
+    /bin/rm -rf "$STAGE_DIR"
+    echo "error: update failed; restored the previous app" >&2
+    exit 1
+fi
+/bin/rm -rf "$STAGE_DIR"
 /usr/bin/xattr -dr com.apple.quarantine "$TARGET" 2>/dev/null || true
 
 # Command-line helper: claude-switcher status | list | use <name>
-BIN_DIR="$HOME/.local/bin"
 /bin/mkdir -p "$BIN_DIR"
 /bin/ln -sf "$TARGET/Contents/MacOS/$EXE" "$BIN_DIR/claude-switcher"
 case ":$PATH:" in
