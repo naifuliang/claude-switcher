@@ -23,3 +23,7 @@
 - App is ad-hoc signed, not notarized. Credentials remain private-permission plaintext in Switcher's profile store.
 
 No raw tokens, OAuth authorization URLs, or private transcripts are included in this record.
+
+## v0.2.1 exit correction
+
+Status-item left click opens the main window; right click constructs an Open / Quit menu. Gateway mode now offers Cancel / Quit with a connection-interruption explanation instead of unconditionally vetoing termination. Universal build and signature verification passed. App-menu Quit was invoked through native UI and absence of the process verified; the system status-item surface was unavailable for automated physical right-click verification.

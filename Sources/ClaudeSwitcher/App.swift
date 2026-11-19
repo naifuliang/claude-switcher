@@ -30,7 +30,24 @@ enum Main {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
 
-    @objc private func statusClicked() { ManagerWindow.show() }
+    @objc private func statusClicked() {
+        guard let button = statusItem?.button else { return }
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            let menu = NSMenu()
+            let open = menu.addItem(withTitle: L("Open Claude Switcher", "打开主界面"),
+                                    action: #selector(openManager), keyEquivalent: "")
+            open.target = self
+            menu.addItem(.separator())
+            let quit = menu.addItem(withTitle: L("Quit Claude Switcher", "退出 Claude Switcher"),
+                                    action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+            quit.target = NSApp
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY), in: button)
+        } else {
+            ManagerWindow.show()
+        }
+    }
+
+    @objc private func openManager() { ManagerWindow.show() }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -61,9 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if ClaudeDesktop.usesLocalGateway {
-            AppModel.shared.showMessage(L("Claude is connected to the local gateway", "Claude 正在使用本地网关"),
-                detail: L("Disable seamless switching in Settings before quitting, so Claude can connect directly. Closing this window keeps the gateway running.", "退出前请先在设置中关闭免重启切换，让 Claude 恢复直连。关闭窗口不会停止网关。"))
-            return .terminateCancel
+            let alert = NSAlert()
+            alert.messageText = L("Quit the local gateway?", "退出本地网关？")
+            alert.informativeText = L("Claude is using this gateway. Quitting interrupts its requests until you reopen Claude Switcher. To keep Claude connected, cancel and disable seamless switching in Settings first.", "Claude 正在使用此网关。退出后，请求会中断，直到重新打开 Claude Switcher。若要让 Claude 保持连接，请取消并先在设置中关闭免重启切换。")
+            alert.addButton(withTitle: L("Cancel", "取消"))
+            alert.addButton(withTitle: L("Quit", "退出"))
+            NSApp.activate(ignoringOtherApps: true)
+            return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
         }
         return .terminateNow
     }
